@@ -26,7 +26,7 @@ class AssistenteVoz:
         self.audios_path = os.path.join(
             base_path, "audios"
         )  # Caminho para salvar os áudios
-        self.rate = 48000  # Taxa de amostragem do áudio
+        self.rate = 16000  # Taxa de amostragem ajustada para 16kHz
         self.buffer_size = 4000  # Tamanho do buffer de áudio
         self.recognizer = None
         self.init_model()
@@ -39,18 +39,26 @@ class AssistenteVoz:
             )
 
         try:
-            # Palavras específicas para reconhecimento
+            # Palavras específicas para reconhecimento e variações das palavras reconhecidas
             words = [
                 "assistente",
                 "navegador",
+                "abrir navegador",
                 "excel",
+                "abrir excel",
                 "powerpoint",
+                "abrir powerpoint",
                 "notas",
+                "abrir notas",
                 "edge",
+                "abrir edge",
                 "fechar",
             ]
             model = Model(self.model_path)
             self.recognizer = KaldiRecognizer(model, self.rate, json.dumps(words))
+            self.recognizer.SetWords(
+                True
+            )  # Ativa o detalhamento das palavras reconhecidas
         except Exception as e:
             raise RuntimeError(f"Erro ao carregar o modelo: {e}")
 
@@ -111,10 +119,15 @@ class AssistenteVoz:
         """
         comandos = {
             "navegador": lambda: os.system("start chrome.exe"),
+            "abrir navegador": lambda: os.system("start chrome.exe"),
             "excel": lambda: os.system("start excel.exe"),
-            "notas": lambda: os.system("notepad.exe"),
+            "abrir excel": lambda: os.system("start excel.exe"),
             "powerpoint": lambda: os.system("start POWERPNT.exe"),
+            "abrir powerpoint": lambda: os.system("start POWERPNT.exe"),
+            "notas": lambda: os.system("notepad.exe"),
+            "abrir notas": lambda: os.system("notepad.exe"),
             "edge": lambda: os.system("start msedge.exe"),
+            "abrir edge": lambda: os.system("start msedge.exe"),
             "fechar": lambda: sys.exit(),
         }
         if comando in comandos:
