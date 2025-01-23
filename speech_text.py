@@ -17,142 +17,117 @@ base_path = os.path.dirname(
 )  # Obtém o diretório onde o script está localizado
 
 
-# Função para criar áudio
-def cria_audio(audio, filename="tmp_audio.mp3"):
-    """
-    Cria um arquivo de áudio com a fala gerada a partir do texto fornecido.
+class AssistenteVoz:
+    def __init__(self):
+        # Inicializa os caminhos, configurações e carrega o modelo
+        self.model_path = os.path.join(
+            base_path, "model-pt-small"
+        )  # Caminho para o modelo
+        self.audios_path = os.path.join(
+            base_path, "audios"
+        )  # Caminho para salvar os áudios
+        self.rate = 48000  # Taxa de amostragem do áudio
+        self.buffer_size = 4000  # Tamanho do buffer de áudio
+        self.recognizer = None
+        self.init_model()
 
-    Parâmetros:
-        audio (str): Texto a ser convertido em áudio.
-        filename (str): Nome do arquivo de saída.
-    """
-    audios_path = os.path.join(base_path, "audios")  # Caminho para a pasta de áudios
-    if not os.path.exists(audios_path):
-        os.makedirs(audios_path)  # Cria a pasta de áudios se não existir
-    audio_path = os.path.join(audios_path, filename)
-    if os.path.exists(audio_path):
-        os.remove(audio_path)  # Remove o arquivo anterior para evitar conflitos
-    tts = gTTS(audio, lang="pt-br")  # Gera o áudio com texto em português
-    tts.save(audio_path)  # Salva o áudio
-    playsound(audio_path)  # Reproduz o áudio gerado
+    def init_model(self):
+        # Verifica e carrega o modelo de reconhecimento de fala
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(
+                "Modelo de linguagem PT-BR do Vosk não encontrado. Baixe em 'https://alphacephei.com/vosk/models' e extraia na pasta do projeto."
+            )
 
+        try:
+            # Palavras específicas para reconhecimento
+            words = [
+                "assistente",
+                "navegador",
+                "excel",
+                "powerpoint",
+                "notas",
+                "edge",
+                "fechar",
+            ]
+            model = Model(self.model_path)
+            self.recognizer = KaldiRecognizer(model, self.rate, json.dumps(words))
+        except Exception as e:
+            raise RuntimeError(f"Erro ao carregar o modelo: {e}")
 
-# Inicializa o modelo do Vosk
-model_path = os.path.join(
-    base_path, "model-pt-large"
-)  # Caminho para o modelo PT-BR do Vosk
-if not os.path.exists(model_path):
-    print(
-        "Modelo de linguagem PT-BR do Vosk não encontrado. Baixe em 'https://alphacephei.com/vosk/models' e extraia na pasta do projeto."
-    )
-    sys.exit(1)
+        # Cria a pasta de áudios, se não existir
+        if not os.path.exists(self.audios_path):
+            os.makedirs(self.audios_path)
 
-try:
-    # Define um vocabulário personalizado
-    words = [
-        "assistente",
-        "navegador",
-        "excel",
-        "powerpoint",
-        "notas",
-        "edge",
-        "fechar",
-    ]
-    model = Model(model_path)  # Carrega o modelo de reconhecimento de fala
-    # rec = KaldiRecognizer(model, 48000)  # Sem vocabulário personalizado
-    rec = KaldiRecognizer(
-        model, 48000, json.dumps(words)
-    )  # Inicializa o reconhecedor com o vocabulário personalizado
-except Exception as e:
-    print(f"Erro ao carregar o modelo: {e}")
-    sys.exit(1)
+    def cria_audio(self, audio, filename="tmp_audio.mp3"):
+        """
+        Converte texto em áudio e o reproduz.
+        """
+        audio_path = os.path.join(self.audios_path, filename)
+        tts = gTTS(audio, lang="pt-br")  # Gera o áudio em português
+        tts.save(audio_path)  # Salva o arquivo de áudio
+        playsound(audio_path)  # Reproduz o áudio
 
+    def ouvir_microfone(
+        self, timeout=None, mensagem_espera="Aguardando a entrada de áudio..."
+    ):
+        """
+        Escuta o áudio do microfone e retorna o texto reconhecido.
+        """
+        p = pyaudio.PyAudio()
+        stream = p.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=self.rate,
+            input=True,
+            frames_per_buffer=self.buffer_size,
+        )
 
-# Função para ouvir e reconhecer a fala com Vosk
-def ouvir_microfone_vosk(
-    timeout=None, mensagem_espera="Aguardando a entrada de áudio..."
-):
-    """
-    Escuta e reconhece a fala do usuário usando o modelo do Vosk.
+        try:
+            stream.start_stream()
+            if mensagem_espera:
+                print(mensagem_espera)  # Mensagem opcional enquanto escuta
+            inicio = time.time()
+            while True:
+                data = stream.read(self.buffer_size, exception_on_overflow=False)
+                if self.recognizer.AcceptWaveform(data):
+                    result = self.recognizer.Result()
+                    frase = eval(result).get("text", "").lower()  # Texto reconhecido
+                    if DEBUG_MODE:
+                        print("Debug - Texto reconhecido:", frase)
+                    return frase
 
-    Parâmetros:
-        timeout (int ou None): Tempo limite para escutar o áudio.
-        mensagem_espera (str): Mensagem exibida enquanto escuta.
-
-    Retorna:
-        str: Texto reconhecido ou None se não entender nada.
-    """
-    p = pyaudio.PyAudio()
-    stream = p.open(
-        format=pyaudio.paInt16,
-        channels=1,
-        rate=48000,
-        input=True,
-        frames_per_buffer=4000,
-    )  # Configura o microfone com taxa de 48kHz e buffer padrão
-    stream.start_stream()
-
-    if mensagem_espera:
-        print(mensagem_espera)  # Exibe a mensagem de espera
-    inicio = time.time()
-    while True:
-        data = stream.read(
-            4000, exception_on_overflow=False
-        )  # Captura o áudio com buffer maior
-        if rec.AcceptWaveform(data):
-            result = rec.Result()
-            frase = eval(result).get("text", "").lower()  # Extrai o texto reconhecido
-            if DEBUG_MODE:
-                print("Debug - Texto reconhecido:", frase)  # Log de depuração
-            if frase:
-                stream.stop_stream()
-                stream.close()
-                p.terminate()
-                return frase
-
-        if timeout and time.time() - inicio > timeout:
-            print("Tempo de escuta excedido.")
+                if timeout and time.time() - inicio > timeout:
+                    print("Tempo de escuta excedido.")
+                    return None
+        finally:
+            # Garante que o fluxo será fechado
             stream.stop_stream()
             stream.close()
             p.terminate()
-            return None
+
+    def executar_comando(self, comando):
+        """
+        Executa um comando baseado no texto reconhecido.
+        """
+        comandos = {
+            "navegador": lambda: os.system("start chrome.exe"),
+            "excel": lambda: os.system("start excel.exe"),
+            "notas": lambda: os.system("notepad.exe"),
+            "powerpoint": lambda: os.system("start POWERPNT.exe"),
+            "edge": lambda: os.system("start msedge.exe"),
+            "fechar": lambda: sys.exit(),
+        }
+        if comando in comandos:
+            comandos[comando]()
+            return True
+        else:
+            self.cria_audio("Comando não reconhecido.")
+            return False
 
 
-# Dicionário de comandos
-def executar_comando(comando):
-    """
-    Executa um comando baseado no texto reconhecido.
-
-    Parâmetros:
-        comando (str): Texto do comando reconhecido.
-
-    Retorna:
-        bool: True se o comando foi executado, False caso contrário.
-    """
-    comandos = {
-        "navegador": lambda: os.system("start chrome.exe"),
-        "excel": lambda: os.system("start excel.exe"),
-        "notas": lambda: os.system("notepad.exe"),
-        "powerpoint": lambda: os.system("start POWERPNT.exe"),
-        "edge": lambda: os.system("start msedge.exe"),
-        "fechar": lambda: sys.exit(),
-    }
-    if comando in comandos:
-        comandos[comando]()  # Executa o comando correspondente
-        return True
-    else:
-        cria_audio(
-            "Comando não reconhecido."
-        )  # Informa que o comando não foi reconhecido
-        return False
-
-
-# Função principal
 def main():
-    """
-    Função principal que controla o fluxo do assistente virtual.
-    """
-    frase_ativacao = "assistente"  # Define a frase de ativação
+    assistente = AssistenteVoz()
+    frase_ativacao = "assistente"  # Frase de ativação para iniciar o comando
 
     print("Iniciando assistente...")
     ultima_msg = time.time()
@@ -163,31 +138,29 @@ def main():
             ultima_msg = time.time()
 
         # Escuta a frase de ativação
-        frase = ouvir_microfone_vosk(
+        frase = assistente.ouvir_microfone(
             timeout=None, mensagem_espera="... ouvindo frase de ativação ..."
         )
         if frase and frase_ativacao in frase:
             print("Frase de ativação detectada!")
             print("Pronto para ouvir o comando. Fale agora!")
 
-            # Inicia escuta do comando antes de reproduzir o som
-            som_ativacao = os.path.join(base_path, "audios", "ativado.mp3")
+            som_ativacao = os.path.join(assistente.audios_path, "ativado.mp3")
             if os.path.exists(som_ativacao):
-                playsound(som_ativacao)  # Reproduz som de ativação
+                playsound(som_ativacao)
             else:
                 print("Arquivo de som 'ativado.mp3' não encontrado.")
 
-            # Escuta um único comando
-            comando = ouvir_microfone_vosk(
+            # Escuta o comando após a ativação
+            comando = assistente.ouvir_microfone(
                 timeout=8, mensagem_espera="... ouvindo comando ..."
             )
             if comando:
                 print("Comando recebido:", comando)
-                executar_comando(comando)
+                assistente.executar_comando(comando)
             else:
                 print("Tempo esgotado. Voltando a aguardar a frase de ativação.")
 
 
-# Executa o programa
 if __name__ == "__main__":
     main()
